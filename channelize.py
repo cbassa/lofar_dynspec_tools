@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 import h5py
-from scipy.fftpack import fft, fftshift
+from scipy.fftpack import fft, fftshift, fftfreq
 from astropy.io import fits
 import argparse
 import re
@@ -66,15 +66,43 @@ if __name__ == "__main__":
     # Compute chunk sizes
     nint, chunk_size = estimate_chunk_size(nsub, 4, 4, nchan, 500e6)
     nchunk = nsamp//(nint*nchan)
-
+    
     # Output file sizes
     msamp = nchunk*nint//nbin
     mchan = nsub*nchan
     mint = nint//nbin
 
-    # Allocate output array
+    # Subband frequencies
+    freqsub = fftshift(fftfreq(nchan, d=tsamp))
+    freqmin = np.min(freqsub)+freq[0]
+    freqstep = freqsub[1]-freqsub[0]
+    
+    # Allocate output arrays
     s0 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
+    s1 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
+    s2 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
+    s3 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
 
+    # Set header
+    hdr = fits.Header()
+    hdr["DATE-OBS"] = fp[0]["/"].attrs["OBSERVATION_START_UTC"].decode()
+    hdr["MJD-OBS"] = fp[0]["/"].attrs["OBSERVATION_START_MJD"]
+    hdr["SOURCE"] = fp[0]["/"].attrs["TARGETS"][0].decode()
+    hdr["CRPIX1"] = 0.0
+    hdr["CRPIX2"] = 0.0
+    hdr["CRPIX3"] = 0.0
+    hdr["CRVAL1"] = 0.0
+    hdr["CRVAL2"] = freqmin
+    hdr["CRVAL3"] = 0.0
+    hdr["CDELT1"] = nchan*nbin*tsamp
+    hdr["CDELT2"] = freqstep
+    hdr["CDELT3"] = 1.0
+    hdr["CUNIT1"] = "sec"
+    hdr["CUNIT2"] = "Hz"
+    hdr["CTYPE1"] = "TIME"
+    hdr["CTYPE2"] = "FREQ"
+    hdr["CTYPE3"] = "STOKES"
+    
     if args.verbose:
         print("\n----------------------------- OUTPUT DATA --------------------------------");
         print("Sample time                  : %g s"%(nchan*nbin*tsamp))
@@ -116,12 +144,11 @@ if __name__ == "__main__":
         
         # Form Stokes
         s0[jmin:jmax] = np.mean(((xx+yy).reshape(nint, -1, order="F")).reshape(nint//nbin, nbin, -1), axis=1)
-
-#        s1 = (xx-yy).reshape(nint, -1, order="F")
-#        s2 = (2.0*(np.real(px)*np.real(py)+np.imag(px)*np.imag(py))).reshape(nint, -1, order="F")
-#        s3 = (2.0*(np.real(px)*np.imag(py)-np.imag(px)*np.real(py))).reshape(nint, -1, order="F")
-
+        s1[jmin:jmax] = np.mean(((xx-yy).reshape(nint, -1, order="F")).reshape(nint//nbin, nbin, -1), axis=1)
+        s2[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.real(py)+np.imag(px)*np.imag(py))).reshape(nint, -1, order="F")).reshape(nint//nbin, nbin, -1), axis=1)
+        s3[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.imag(py)-np.imag(px)*np.real(py))).reshape(nint, -1, order="F")).reshape(nint//nbin, nbin, -1), axis=1)
+       
     # Write out FITS
-    hdu = fits.PrimaryHDU(s0.T)
+    hdu = fits.PrimaryHDU(data=[s0.T, s1.T, s2.T, s3.T], header=hdr)
     hdu.writeto(outfname, overwrite=True)
 
