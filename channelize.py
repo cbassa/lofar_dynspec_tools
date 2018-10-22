@@ -5,6 +5,7 @@ from scipy.fftpack import fft, fftshift, fftfreq
 from astropy.io import fits
 import argparse
 import re
+import time
 
 def estimate_chunk_size(bytes_per_spectrum, chunk_size):
     # Find chunk size, rounded down to the nearest power of 2
@@ -69,12 +70,11 @@ if __name__ == "__main__":
     if np.dtype(dtype)==np.int8:
         recsize = fp[0][groups[0]+"_i2f"].attrs["STOKES_0_recsize"]
         nint = recsize//(nsub*nchan)
-        nchunk = nsamp//(nint*nchan)
+        nchunk = nsamp//(nint*nchan)+1
         chunk_size = nint*bytes_per_spectrum
     else:
         nint, chunk_size = estimate_chunk_size(bytes_per_spectrum, 500e6)
-        nchunk = nsamp//(nint*nchan)
-    nchunk = 2
+        nchunk = nsamp//(nint*nchan)+1
     
     # Output file sizes
     msamp = nchunk*nint//nbin
@@ -125,12 +125,12 @@ if __name__ == "__main__":
 
     # Loop over chunks
     for ichunk in range(nchunk):
-        print("%d out %d"%(ichunk, nchunk))
         # Set slice to read
         imin = ichunk*nchan*nint
         imax = (ichunk+1)*nchan*nint
 
         # Extract values from HDF5 files
+        t0 = time.time()
         if np.dtype(dtype)==np.int8:
             xr = fp[0][groups[0]][imin:imax].astype("float32")*fp[0][groups[0]+"_i2f"][ichunk]
             xi = fp[1][groups[1]][imin:imax].astype("float32")*fp[1][groups[1]+"_i2f"][ichunk]
@@ -141,28 +141,36 @@ if __name__ == "__main__":
             xi = fp[1][groups[1]][imin:imax]
             yr = fp[2][groups[2]][imin:imax]
             yi = fp[3][groups[3]][imin:imax]
+        tread = time.time()-t0
+
+        # Use actual size to deal with last chunk
+        nint_act = xr.shape[0]//nchan
+        mint_act = nint_act//nbin
 
         # Form complex timeseries
         cx = xr+1j*xi
         cy = yr+1j*yi
 
         # Fourier transform
-        px = fftshift(fft(cx.reshape(nint, nchan, -1), axis=1), axes=1)
-        py = fftshift(fft(cy.reshape(nint, nchan, -1), axis=1), axes=1)
+        t0 = time.time()
+        px = fftshift(fft(cx.reshape(nint_act, nchan, -1), axis=1), axes=1)
+        py = fftshift(fft(cy.reshape(nint_act, nchan, -1), axis=1), axes=1)
 
         # Detect signals
         xx = np.real(px)*np.real(px)+np.imag(px)*np.imag(px)
         yy = np.real(py)*np.real(py)+np.imag(py)*np.imag(py)
 
         # Set slice to output
-        jmin = ichunk*mint
-        jmax = (ichunk+1)*mint
+        jmin = ichunk*mint_act
+        jmax = (ichunk+1)*mint_act
         
         # Form Stokes
-        s0[jmin:jmax] = np.mean(((xx+yy).reshape(nint, -1, order="F")).reshape(nint//nbin, nbin, -1), axis=1)
-        s1[jmin:jmax] = np.mean(((xx-yy).reshape(nint, -1, order="F")).reshape(nint//nbin, nbin, -1), axis=1)
-        s2[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.real(py)+np.imag(px)*np.imag(py))).reshape(nint, -1, order="F")).reshape(nint//nbin, nbin, -1), axis=1)
-        s3[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.imag(py)-np.imag(px)*np.real(py))).reshape(nint, -1, order="F")).reshape(nint//nbin, nbin, -1), axis=1)
+        s0[jmin:jmax] = np.mean(((xx+yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
+        s1[jmin:jmax] = np.mean(((xx-yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
+        s2[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.real(py)+np.imag(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
+        s3[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.imag(py)-np.imag(px)*np.real(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
+        tproc = time.time()-t0
+        print("%d out %d, read: %.2fs, proc: %.2fs"%(ichunk, nchunk, tread, tproc))
        
     # Write out FITS
     hdu = fits.PrimaryHDU(data=[s0.T, s1.T, s2.T, s3.T], header=hdr)
