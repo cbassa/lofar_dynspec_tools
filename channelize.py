@@ -6,12 +6,9 @@ from astropy.io import fits
 import argparse
 import re
 
-def estimate_chunk_size(nsub, nval, nbyte, nchan, chunk_size):
-    # Number of bytes per spectrum
-    bytes_per_spectrum = nsub*nval*nbyte*nchan
-
+def estimate_chunk_size(bytes_per_spectrum, chunk_size):
     # Find chunk size, rounded down to the nearest power of 2
-    nexp = int(np.floor((np.log10(chunk_size/bytes_per_spectrum)/np.log10(2.0))))
+    nexp = int(np.floor((np.log2(chunk_size/bytes_per_spectrum))))
 
     return 2**nexp, 2**nexp*bytes_per_spectrum
                
@@ -48,6 +45,7 @@ if __name__ == "__main__":
     nsub = fp[0][groups[0]].attrs["NOF_SUBBANDS"]
     tsamp = fp[0]["/SUB_ARRAY_POINTING_%s/BEAM_%s/COORDINATES/COORDINATE_0"%(sapid, beamid)].attrs["INCREMENT"]
     freq = fp[0]["/SUB_ARRAY_POINTING_%s/BEAM_%s/COORDINATES/COORDINATE_1"%(sapid, beamid)].attrs["AXIS_VALUES_WORLD"]
+    dtype = fp[0][groups[0]].attrs["DATATYPE"]
 
     if args.verbose:
         print("\n----------------------------- INPUT DATA ---------------------------------");
@@ -58,14 +56,25 @@ if __name__ == "__main__":
         print("Observation duration         : %g s"%(nsamp*tsamp))
         print("Center frequency             : %g MHz"%np.mean(freq*1e-6))
         print("Bandwidth                    : %g MHz"%(nsub*0.1953125))
+        print("Datatype                     : %s"%np.dtype(dtype))
         
     # Set channelization and decimation
     nchan = args.nchan
     nbin = args.nsamp
 
+    # Bytes per spectrum
+    bytes_per_spectrum = nsub*nchan*4*4 # 4 values per sample at 4 bytes per value
+
     # Compute chunk sizes
-    nint, chunk_size = estimate_chunk_size(nsub, 4, 4, nchan, 500e6)
-    nchunk = nsamp//(nint*nchan)
+    if np.dtype(dtype)==np.int8:
+        recsize = fp[0][groups[0]+"_i2f"].attrs["STOKES_0_recsize"]
+        nint = recsize//(nsub*nchan)
+        nchunk = nsamp//(nint*nchan)
+        chunk_size = nint*bytes_per_spectrum
+    else:
+        nint, chunk_size = estimate_chunk_size(bytes_per_spectrum, 500e6)
+        nchunk = nsamp//(nint*nchan)
+    nchunk = 2
     
     # Output file sizes
     msamp = nchunk*nint//nbin
@@ -116,15 +125,22 @@ if __name__ == "__main__":
 
     # Loop over chunks
     for ichunk in range(nchunk):
+        print("%d out %d"%(ichunk, nchunk))
         # Set slice to read
         imin = ichunk*nchan*nint
         imax = (ichunk+1)*nchan*nint
 
         # Extract values from HDF5 files
-        xr = fp[0][groups[0]][imin:imax]
-        xi = fp[1][groups[1]][imin:imax]
-        yr = fp[2][groups[2]][imin:imax]
-        yi = fp[3][groups[3]][imin:imax]
+        if np.dtype(dtype)==np.int8:
+            xr = fp[0][groups[0]][imin:imax].astype("float32")*fp[0][groups[0]+"_i2f"][ichunk]
+            xi = fp[1][groups[1]][imin:imax].astype("float32")*fp[1][groups[1]+"_i2f"][ichunk]
+            yr = fp[2][groups[2]][imin:imax].astype("float32")*fp[2][groups[2]+"_i2f"][ichunk]
+            yi = fp[3][groups[3]][imin:imax].astype("float32")*fp[3][groups[3]+"_i2f"][ichunk]
+        else:
+            xr = fp[0][groups[0]][imin:imax]
+            xi = fp[1][groups[1]][imin:imax]
+            yr = fp[2][groups[2]][imin:imax]
+            yi = fp[3][groups[3]][imin:imax]
 
         # Form complex timeseries
         cx = xr+1j*xi
