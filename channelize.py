@@ -12,7 +12,28 @@ def estimate_chunk_size(bytes_per_spectrum, chunk_size):
     nexp = int(np.floor((np.log2(chunk_size/bytes_per_spectrum))))
 
     return 2**nexp, 2**nexp*bytes_per_spectrum
-               
+
+def find_stokes_group(h5):
+    # Find first SAP
+    sapid = [key for key in h5.keys() if "SUB_ARRAY_POINTING" in key][0]
+
+    # Find first BEAM in first SAP
+    beamid = [key for key in h5[sapid].keys() if "BEAM" in key][0]
+
+    # Find first STOKES in first BEAM of first SAP
+    stokesid = [key for key in h5[sapid +"/" + beamid].keys() if "STOKES" in key][0]
+    
+    return str(sapid + "/" + beamid + "/" + stokesid)
+
+def find_beam_group(h5):
+    # Find first SAP
+    sapid = [key for key in h5.keys() if "SUB_ARRAY_POINTING" in key][0]
+
+    # Find first BEAM in first SAP
+    beamid = [key for key in h5[sapid].keys() if "BEAM" in key][0]
+
+    return str(sapid + "/" + beamid)
+
 if __name__ == "__main__":
     # Read commandline arguments
     parser = argparse.ArgumentParser(description="Channelize LOFAR complex voltage data")
@@ -40,12 +61,14 @@ if __name__ == "__main__":
     fp = [h5py.File(fname, "r") for fname in fnames]
 
     # Get groups
-    groups = ["/SUB_ARRAY_POINTING_%s/BEAM_%s/STOKES_%d"%(sapid, beamid, stokesid) for stokesid in range(4)]
+    groups = [find_stokes_group(fptr) for fptr in fp]
+    beamgroups = [find_beam_group(fptr) for fptr in fp]
 
+    # Get parameters
     nsamp = fp[0][groups[0]].attrs["NOF_SAMPLES"]
     nsub = fp[0][groups[0]].attrs["NOF_SUBBANDS"]
-    tsamp = fp[0]["/SUB_ARRAY_POINTING_%s/BEAM_%s/COORDINATES/COORDINATE_0"%(sapid, beamid)].attrs["INCREMENT"]
-    freq = fp[0]["/SUB_ARRAY_POINTING_%s/BEAM_%s/COORDINATES/COORDINATE_1"%(sapid, beamid)].attrs["AXIS_VALUES_WORLD"]
+    tsamp = fp[0]["/%s/COORDINATES/COORDINATE_0" % beamgroups[0]].attrs["INCREMENT"]
+    freq = fp[0]["/%s/COORDINATES/COORDINATE_1"% beamgroups[0]].attrs["AXIS_VALUES_WORLD"]
     dtype = fp[0][groups[0]].attrs["DATATYPE"]
 
     if args.verbose:
@@ -164,11 +187,11 @@ if __name__ == "__main__":
         jmin = ichunk*mint_act
         jmax = (ichunk+1)*mint_act
         
-        # Form Stokes
+        # Form Stokes (IAU/IEEE convention [van Straten et al. 2010, PASP 27, 104])
         s0[jmin:jmax] = np.mean(((xx+yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
         s1[jmin:jmax] = np.mean(((xx-yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
         s2[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.real(py)+np.imag(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
-        s3[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.imag(py)-np.imag(px)*np.real(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
+        s3[jmin:jmax] = np.mean(((2.0*(np.imag(px)*np.real(py)-np.real(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
         tproc = time.time()-t0
         print("%d out %d, read: %.2fs, proc: %.2fs"%(ichunk, nchunk, tread, tproc))
        
@@ -176,3 +199,6 @@ if __name__ == "__main__":
     hdu = fits.PrimaryHDU(data=[s0.T, s1.T, s2.T, s3.T], header=hdr)
     hdu.writeto(outfname, overwrite=True)
 
+    # Close HDF5 files
+    for fptr in fp:
+        fptr.close()
