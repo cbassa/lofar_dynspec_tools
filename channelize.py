@@ -6,6 +6,8 @@ from astropy.io import fits
 import argparse
 import re
 import time
+import os.path
+import os
 
 def estimate_chunk_size(bytes_per_spectrum, chunk_size):
     # Find chunk size, rounded down to the nearest power of 2
@@ -47,6 +49,7 @@ if __name__ == "__main__":
     # Parse HDF5 file name
     m = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
     obsid, sapid, beamid, stokesid, partid = m.groups()
+    inputdir = os.path.dirname(args.filename)
 
     # Set output filename
     if args.output==None:
@@ -55,7 +58,11 @@ if __name__ == "__main__":
         outfname = args.output
 
     # Format HDF5 filenames
-    fnames = ["L%s_SAP%s_B%s_S%d_P%s_bf.h5"%(obsid, sapid, beamid, stokesid, partid) for stokesid in range(4)]
+    fnames = [os.path.join(inputdir, "L%s_SAP%s_B%s_S%d_P%s_bf.h5"%(obsid, sapid, beamid, stokesid, partid)) for stokesid in range(4)]
+
+    currentdir = os.getcwd()
+    if inputdir != "":
+        os.chdir(inputdir)
 
     # Open files
     fp = [h5py.File(fname, "r") for fname in fnames]
@@ -196,6 +203,7 @@ if __name__ == "__main__":
         print("%d out %d, read: %.2fs, proc: %.2fs"%(ichunk, nchunk, tread, tproc))
        
     # Write out FITS
+    os.chdir(currentdir)
     hdu = fits.PrimaryHDU(data=[s0.T, s1.T, s2.T, s3.T], header=hdr)
     hdu.writeto(outfname, overwrite=True)
 
