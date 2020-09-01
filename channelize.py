@@ -6,6 +6,15 @@ from astropy.io import fits
 import argparse
 import re
 import time
+import os.path
+import os
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(x):
+        return x
+
 
 def estimate_chunk_size(bytes_per_spectrum, chunk_size):
     # Find chunk size, rounded down to the nearest power of 2
@@ -40,13 +49,16 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--nsamp", help="Decimate in time (power of 2; default: 128)", type=int, default=128)
     parser.add_argument("-F" , "--nchan", help="Number of channels per subband (power of 2; default 16)", type=int, default=16)
     parser.add_argument("-o", "--output", help="Output FITS file name")
+    parser.add_argument("-I", "--stokesi", help="Stokes I only", action="store_true")
     parser.add_argument("-v", "--verbose", help="Verbose mode", action="store_true")
+    parser.add_argument("-n", "--nof_samples", help="Additional NOF_SAMPLES", type=int, default=0)
     parser.add_argument("filename", help="HDF5 input header file name (LXXXXXX_SAPXXX_BXXX_SX_PXXX_bf.h5)")
     args = parser.parse_args()
 
     # Parse HDF5 file name
     m = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
     obsid, sapid, beamid, stokesid, partid = m.groups()
+    inputdir = os.path.dirname(args.filename)
 
     # Set output filename
     if args.output==None:
@@ -55,7 +67,11 @@ if __name__ == "__main__":
         outfname = args.output
 
     # Format HDF5 filenames
-    fnames = ["L%s_SAP%s_B%s_S%d_P%s_bf.h5"%(obsid, sapid, beamid, stokesid, partid) for stokesid in range(4)]
+    fnames = [os.path.join(inputdir, "L%s_SAP%s_B%s_S%d_P%s_bf.h5"%(obsid, sapid, beamid, stokesid, partid)) for stokesid in range(4)]
+
+    currentdir = os.getcwd()
+    if inputdir != "":
+        os.chdir(inputdir)
 
     # Open files
     fp = [h5py.File(fname, "r") for fname in fnames]
@@ -65,7 +81,11 @@ if __name__ == "__main__":
     beamgroups = [find_beam_group(fptr) for fptr in fp]
 
     # Get parameters
-    nsamp = fp[0][groups[0]].attrs["NOF_SAMPLES"]
+    if args.nof_samples == 0:
+        nsamp = fp[0][groups[0]].attrs["NOF_SAMPLES"]
+    else:
+        nsamp = args.nof_samples
+    print(nsamp, type(nsamp))
     nsub = fp[0][groups[0]].attrs["NOF_SUBBANDS"]
     tsamp = fp[0]["/%s/COORDINATES/COORDINATE_0" % beamgroups[0]].attrs["INCREMENT"]
     freq = fp[0]["/%s/COORDINATES/COORDINATE_1"% beamgroups[0]].attrs["AXIS_VALUES_WORLD"]
@@ -111,9 +131,10 @@ if __name__ == "__main__":
     
     # Allocate output arrays
     s0 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
-    s1 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
-    s2 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
-    s3 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
+    if not args.stokesi:
+        s1 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
+        s2 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
+        s3 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
 
     # Set header
     hdr = fits.Header()
@@ -144,10 +165,13 @@ if __name__ == "__main__":
         print("Time decimation factor       : %d"%nbin)
         print("Number of chunks             : %d"%nchunk)
         print("Chunk size                   : %.2f MB"%(chunk_size*1e-6))
-        print("Output size                  : %.2f MB"%(4*msamp*mchan*1e-6))
+        if not args.stokesi:
+            print("Output size                  : %.2f MB"%(4*msamp*mchan*1e-6))
+        else:
+            print("Output size                  : %.2f MB"%(msamp*mchan*1e-6))
 
     # Loop over chunks
-    for ichunk in range(nchunk):
+    for ichunk in tqdm(range(nchunk)):
         # Set slice to read
         imin = ichunk*nchan*nint
         imax = (ichunk+1)*nchan*nint
@@ -189,15 +213,20 @@ if __name__ == "__main__":
         
         # Form Stokes (IAU/IEEE convention [van Straten et al. 2010, PASP 27, 104])
         s0[jmin:jmax] = np.mean(((xx+yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
-        s1[jmin:jmax] = np.mean(((xx-yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
-        s2[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.real(py)+np.imag(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
-        s3[jmin:jmax] = np.mean(((2.0*(np.imag(px)*np.real(py)-np.real(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
+        if not args.stokesi:
+            s1[jmin:jmax] = np.mean(((xx-yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
+            s2[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.real(py)+np.imag(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
+            s3[jmin:jmax] = np.mean(((2.0*(np.imag(px)*np.real(py)-np.real(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
         tproc = time.time()-t0
-        print("%d out %d, read: %.2fs, proc: %.2fs"%(ichunk, nchunk, tread, tproc))
-       
+        #print("%d out %d, read: %.2fs, proc: %.2fs"%(ichunk, nchunk, tread, tproc))
+
     # Write out FITS
-    hdu = fits.PrimaryHDU(data=[s0.T, s1.T, s2.T, s3.T], header=hdr)
-    hdu.writeto(outfname, overwrite=True)
+    os.chdir(currentdir)
+    if not args.stokesi:
+        hdu = fits.PrimaryHDU(data=[s0.T, s1.T, s2.T, s3.T], header=hdr)
+    else:
+        hdu = fits.PrimaryHDU(data=s0.T, header=hdr)
+    hdu.writeto(outfname)
 
     # Close HDF5 files
     for fptr in fp:
