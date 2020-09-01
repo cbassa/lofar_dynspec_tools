@@ -9,6 +9,13 @@ import time
 import os.path
 import os
 
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(x):
+        return x
+
+
 def estimate_chunk_size(bytes_per_spectrum, chunk_size):
     # Find chunk size, rounded down to the nearest power of 2
     nexp = int(np.floor((np.log2(chunk_size/bytes_per_spectrum))))
@@ -154,7 +161,7 @@ if __name__ == "__main__":
         print("Output size                  : %.2f MB"%(4*msamp*mchan*1e-6))
 
     # Loop over chunks
-    for ichunk in range(nchunk):
+    for ichunk in tqdm(range(nchunk)):
         # Set slice to read
         imin = ichunk*nchan*nint
         imax = (ichunk+1)*nchan*nint
@@ -200,8 +207,8 @@ if __name__ == "__main__":
         s2[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.real(py)+np.imag(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
         s3[jmin:jmax] = np.mean(((2.0*(np.imag(px)*np.real(py)-np.real(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
         tproc = time.time()-t0
-        print("%d out %d, read: %.2fs, proc: %.2fs"%(ichunk, nchunk, tread, tproc))
-       
+        #print("%d out %d, read: %.2fs, proc: %.2fs"%(ichunk, nchunk, tread, tproc))
+
     # Write out FITS
     os.chdir(currentdir)
     hdu = fits.PrimaryHDU(data=[s0.T, s1.T, s2.T, s3.T], header=hdr)
