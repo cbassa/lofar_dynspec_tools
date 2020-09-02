@@ -54,6 +54,8 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--nof_samples", help="Additional NOF_SAMPLES", type=int, default=0)
     parser.add_argument("-S", "--start", help="Start processing t=start (seconds; default 0)", type=float, default=0.0)
     parser.add_argument("-T", "--total", help="Process only t=total seconds (seconds; default all)", type=float, default=None)
+    parser.add_argument("-f", "--frequency", help="Center frequency to extract (Hz; default none)", type=float, default=None)
+    parser.add_argument("-b", "--bandwidth", help="Bandwidth to extract (Hz; default all)", type=float, default=None)
     parser.add_argument("filename", help="HDF5 input header file name (LXXXXXX_SAPXXX_BXXX_SX_PXXX_bf.h5)")
     args = parser.parse_args()
 
@@ -67,8 +69,6 @@ if __name__ == "__main__":
         outfname="L%s_SAP%s_B%s_P%s.fits"%(obsid, sapid, beamid, partid)
     else:
         outfname = args.output
-
-    print(args.start, args.total)
 
     # Format HDF5 filenames
     fnames = [os.path.join(inputdir, "L%s_SAP%s_B%s_S%d_P%s_bf.h5"%(obsid, sapid, beamid, stokesid, partid)) for stokesid in range(4)]
@@ -90,11 +90,13 @@ if __name__ == "__main__":
     else:
         nsamp = args.nof_samples
 
+    # Extract data parameters
     nsub = fp[0][groups[0]].attrs["NOF_SUBBANDS"]
     tsamp = fp[0]["/%s/COORDINATES/COORDINATE_0" % beamgroups[0]].attrs["INCREMENT"]
     freq = fp[0]["/%s/COORDINATES/COORDINATE_1"% beamgroups[0]].attrs["AXIS_VALUES_WORLD"]
     dtype = fp[0][groups[0]].attrs["DATATYPE"]
 
+    # Set time selection
     if args.start > 0:
         istart = int(args.start / tsamp)
     else:
@@ -105,20 +107,6 @@ if __name__ == "__main__":
         iend = nsamp
     nsamp = iend - istart
 
-
-    print(istart, iend, nsamp)
-
-    if args.verbose:
-        print("\n----------------------------- INPUT DATA ---------------------------------");
-        print("Filename                     : %s"%fnames[0])
-        print("Sample time                  : %g s"%tsamp)
-        print("Number of samples            : %ld"%nsamp)
-        print("Number of subbands           : %d"%nsub)
-        print("Observation duration         : %g s"%(nsamp*tsamp))
-        print("Center frequency             : %g MHz"%np.mean(freq*1e-6))
-        print("Bandwidth                    : %g MHz"%(nsub*0.1953125))
-        print("Datatype                     : %s"%np.dtype(dtype))
-        
     # Set channelization and decimation
     nchan = args.nchan
     nbin = args.nsamp
@@ -145,7 +133,29 @@ if __name__ == "__main__":
     freqsub = fftshift(fftfreq(nchan, d=tsamp))
     freqmin = np.min(freqsub)+freq[0]
     freqstep = freqsub[1]-freqsub[0]
-    
+    freqs = freqmin + np.arange(mchan) * freqstep
+
+    # Set frequency selection
+    if args.frequency is not None and args.bandwidth is not None:
+        fmin = args.frequency - 0.5 * args.bandwidth
+        fmax = args.frequency + 0.5 * args.bandwidth
+        cfreq = (freqs >= fmin) & (freqs < fmax)
+    else:
+        cfreq = np.ones(len(freqs), dtype="bool")
+    mchan = np.sum(cfreq)
+    freqmin = np.min(freqs[cfreq])
+
+    if args.verbose:
+        print("\n----------------------------- INPUT DATA ---------------------------------");
+        print("Filename                     : %s"%fnames[0])
+        print("Sample time                  : %g s"%tsamp)
+        print("Number of samples            : %ld"%nsamp)
+        print("Number of subbands           : %d"%nsub)
+        print("Observation duration         : %g s"%(nsamp*tsamp))
+        print("Center frequency             : %g MHz"%np.mean(freq*1e-6))
+        print("Bandwidth                    : %g MHz"%(nsub*0.1953125))
+        print("Datatype                     : %s"%np.dtype(dtype))
+            
     # Allocate output arrays
     s0 = np.zeros(msamp*mchan).astype("float32").reshape(msamp, mchan)
     if not args.stokesi:
@@ -229,11 +239,11 @@ if __name__ == "__main__":
         jmax = (ichunk+1)*mint_act
         
         # Form Stokes (IAU/IEEE convention [van Straten et al. 2010, PASP 27, 104])
-        s0[jmin:jmax] = np.mean(((xx+yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
+        s0[jmin:jmax] = np.mean(((xx+yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)[:, cfreq]
         if not args.stokesi:
-            s1[jmin:jmax] = np.mean(((xx-yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
-            s2[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.real(py)+np.imag(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
-            s3[jmin:jmax] = np.mean(((2.0*(np.imag(px)*np.real(py)-np.real(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)
+            s1[jmin:jmax] = np.mean(((xx-yy).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)[:, cfreq]
+            s2[jmin:jmax] = np.mean(((2.0*(np.real(px)*np.real(py)+np.imag(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)[:, cfreq]
+            s3[jmin:jmax] = np.mean(((2.0*(np.imag(px)*np.real(py)-np.real(px)*np.imag(py))).reshape(nint_act, -1, order="F")).reshape(mint_act, nbin, -1), axis=1)[:, cfreq]
         tproc = time.time()-t0
         #print("%d out %d, read: %.2fs, proc: %.2fs"%(ichunk, nchunk, tread, tproc))
 
