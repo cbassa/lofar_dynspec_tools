@@ -52,6 +52,8 @@ if __name__ == "__main__":
     parser.add_argument("-I", "--stokesi", help="Stokes I only", action="store_true")
     parser.add_argument("-v", "--verbose", help="Verbose mode", action="store_true")
     parser.add_argument("-n", "--nof_samples", help="Additional NOF_SAMPLES", type=int, default=0)
+    parser.add_argument("-S", "--start", help="Start processing t=start (seconds; default 0)", type=float, default=0.0)
+    parser.add_argument("-T", "--total", help="Process only t=total seconds (seconds; default all)", type=float, default=None)
     parser.add_argument("filename", help="HDF5 input header file name (LXXXXXX_SAPXXX_BXXX_SX_PXXX_bf.h5)")
     args = parser.parse_args()
 
@@ -65,6 +67,8 @@ if __name__ == "__main__":
         outfname="L%s_SAP%s_B%s_P%s.fits"%(obsid, sapid, beamid, partid)
     else:
         outfname = args.output
+
+    print(args.start, args.total)
 
     # Format HDF5 filenames
     fnames = [os.path.join(inputdir, "L%s_SAP%s_B%s_S%d_P%s_bf.h5"%(obsid, sapid, beamid, stokesid, partid)) for stokesid in range(4)]
@@ -85,11 +89,24 @@ if __name__ == "__main__":
         nsamp = fp[0][groups[0]].attrs["NOF_SAMPLES"]
     else:
         nsamp = args.nof_samples
-    print(nsamp, type(nsamp))
+
     nsub = fp[0][groups[0]].attrs["NOF_SUBBANDS"]
     tsamp = fp[0]["/%s/COORDINATES/COORDINATE_0" % beamgroups[0]].attrs["INCREMENT"]
     freq = fp[0]["/%s/COORDINATES/COORDINATE_1"% beamgroups[0]].attrs["AXIS_VALUES_WORLD"]
     dtype = fp[0][groups[0]].attrs["DATATYPE"]
+
+    if args.start > 0:
+        istart = int(args.start / tsamp)
+    else:
+        istart = 0
+    if args.total is not None:
+        iend = int((args.start + args.total) / tsamp)
+    else:
+        iend = nsamp
+    nsamp = iend - istart
+
+
+    print(istart, iend, nsamp)
 
     if args.verbose:
         print("\n----------------------------- INPUT DATA ---------------------------------");
@@ -144,7 +161,7 @@ if __name__ == "__main__":
     hdr["CRPIX1"] = 0.0
     hdr["CRPIX2"] = 0.0
     hdr["CRPIX3"] = 0.0
-    hdr["CRVAL1"] = 0.0
+    hdr["CRVAL1"] = args.start
     hdr["CRVAL2"] = freqmin
     hdr["CRVAL3"] = 0.0
     hdr["CDELT1"] = nchan*nbin*tsamp
@@ -173,8 +190,8 @@ if __name__ == "__main__":
     # Loop over chunks
     for ichunk in tqdm(range(nchunk)):
         # Set slice to read
-        imin = ichunk*nchan*nint
-        imax = (ichunk+1)*nchan*nint
+        imin = ichunk*nchan*nint+istart
+        imax = (ichunk+1)*nchan*nint+istart
 
         # Extract values from HDF5 files
         t0 = time.time()
@@ -226,7 +243,7 @@ if __name__ == "__main__":
         hdu = fits.PrimaryHDU(data=[s0.T, s1.T, s2.T, s3.T], header=hdr)
     else:
         hdu = fits.PrimaryHDU(data=s0.T, header=hdr)
-    hdu.writeto(outfname)
+    hdu.writeto(outfname, overwrite=True)
 
     # Close HDF5 files
     for fptr in fp:
