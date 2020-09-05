@@ -173,8 +173,8 @@ def main(args):
     nchan = args.nchan
     nbin = args.nsamp
 
-    # Bytes per spectrum
-    bytes_per_spectrum = nsub * nchan * 4 * 4  # 4 values per sample at 4 bytes per value
+    # Bytes per spectrum: 4 values per sample at 4 bytes per value
+    bytes_per_spectrum = nsub * nchan * 4 * 4
 
     # Compute chunk sizes
     if np.dtype(dtype) == np.int8:
@@ -209,7 +209,7 @@ def main(args):
 
     if args.verbose:
         print(
-            "\n----------------------------- INPUT DATA ---------------------------------"
+            "\n----------------------------- INPUT DATA ----------------------"
         )
         print("Filename                     : %s" % fnames[0])
         print("Sample time                  : %g s" % tsamp)
@@ -249,7 +249,7 @@ def main(args):
 
     if args.verbose:
         print(
-            "\n----------------------------- OUTPUT DATA --------------------------------"
+            "\n----------------------------- OUTPUT DATA ---------------------"
         )
         print("Sample time                  : %g s" % (nchan * nbin * tsamp))
         print("Number of samples            : %d" % msamp)
@@ -310,7 +310,8 @@ def main(args):
         jmin = ichunk * mint_act
         jmax = (ichunk + 1) * mint_act
 
-        # Form Stokes (IAU/IEEE convention [van Straten et al. 2010, PASP 27, 104])
+        # Form Stokes
+        # (IAU/IEEE convention [van Straten et al. 2010, PASP 27, 104])
         s0[jmin:jmax] = np.mean(
             ((xx + yy).reshape(nint_act, -1,
                                order="F")).reshape(mint_act, nbin, -1),
