@@ -107,6 +107,14 @@ if __name__ == "__main__":
         help="HDF5 input header file name (LXXXXXX_SAPXXX_BXXX_SX_PXXX_bf.h5)")
     args = parser.parse_args()
 
+    data, hdr = main(args)
+
+    # Write out FITS
+    hdu = fits.PrimaryHDU(data=data, header=hdr)
+    hdu.writeto(outfname, overwrite=True)
+
+
+def main(args):
     # Parse HDF5 file name
     m = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
     obsid, sapid, beamid, stokesid, partid = m.groups()
@@ -323,16 +331,10 @@ if __name__ == "__main__":
                             order="F")).reshape(mint_act, nbin, -1),
                 axis=1)[:, cfreq]
         tproc = time.time() - t0
-        #print("%d out %d, read: %.2fs, proc: %.2fs"%(ichunk, nchunk, tread, tproc))
 
-    # Write out FITS
     os.chdir(currentdir)
-    if not args.stokesi:
-        hdu = fits.PrimaryHDU(data=[s0.T, s1.T, s2.T, s3.T], header=hdr)
-    else:
-        hdu = fits.PrimaryHDU(data=s0.T, header=hdr)
-    hdu.writeto(outfname, overwrite=True)
 
-    # Close HDF5 files
-    for fptr in fp:
-        fptr.close()
+    if args.stokesi:
+        return [s0.T], hdr
+    else:
+        return [s0.T, s1.T, s2.T, s3.T], hdr
