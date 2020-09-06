@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Channelize LOFAR beamformed data"""
+"""Channelize LOFAR complex voltage data"""
 
 import argparse
 import re
@@ -52,79 +52,29 @@ def find_beam_group(h5):
     return str(sapid + "/" + beamid)
 
 
-if __name__ == "__main__":
-    """Read commandline arguments"""
-    parser = argparse.ArgumentParser(
-        description="Channelize LOFAR complex voltage data")
-    parser.add_argument("-t",
-                        "--nsamp",
-                        help="Decimate in time (power of 2; default: 128)",
-                        type=int,
-                        default=128)
-    parser.add_argument(
-        "-F",
-        "--nchan",
-        help="Number of channels per subband (power of 2; default 16)",
-        type=int,
-        default=16)
-    parser.add_argument("-o", "--output", help="Output FITS file name")
-    parser.add_argument("-I",
-                        "--stokesi",
-                        help="Stokes I only",
-                        action="store_true")
-    parser.add_argument("-v",
-                        "--verbose",
-                        help="Verbose mode",
-                        action="store_true")
-    parser.add_argument("-n",
-                        "--nof_samples",
-                        help="Additional NOF_SAMPLES",
-                        type=int,
-                        default=0)
-    parser.add_argument("-S",
-                        "--start",
-                        help="Start processing t=start (seconds; default 0)",
-                        type=float,
-                        default=0.0)
-    parser.add_argument(
-        "-T",
-        "--total",
-        help="Process only t=total seconds (seconds; default all)",
-        type=float,
-        default=None)
-    parser.add_argument("-f",
-                        "--frequency",
-                        help="Center frequency to extract (Hz; default none)",
-                        type=float,
-                        default=None)
-    parser.add_argument("-b",
-                        "--bandwidth",
-                        help="Bandwidth to extract (Hz; default all)",
-                        type=float,
-                        default=None)
-    parser.add_argument(
-        "filename",
-        help="HDF5 input header file name (LXXXXXX_SAPXXX_BXXX_SX_PXXX_bf.h5)")
-    args = parser.parse_args()
+def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None, verbose=False,
+               frequency=None, bandwidth=None, stokesi=False):
+    """
+    Extract data from HDF5 and channelize
 
-    data, hdr = main(args)
+    Args:
+        nchan (int): number of channels per subband (power of 2; default 16)
+        nbin (int): decimate in time (power of 2; default 128)
+        stokesi (bool): Stokes I only
+        verbose (bool): verbose mode
+        nof_samples: override number of samples stored in HDF5
+        start (float): start processing t=tstart (seconds; default 0)
+        total (float): process only t=total seconds (seconds; default all)
+        frequency (float): center frequency to extract (Hz; default none
+        bandwidth (float): bandwidth to extract (Hz; default all)
 
-    # Write out FITS
-    hdu = fits.PrimaryHDU(data=data, header=hdr)
-    hdu.writeto(outfname, overwrite=True)
-
-
-def main(args):
+    Returns:
+        data (np.array), header (as fits object)
+    """
     # Parse HDF5 file name
-    m = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
-    obsid, sapid, beamid, stokesid, partid = m.groups()
-    inputdir = os.path.dirname(args.filename)
-
-    # Set output filename
-    if args.output is None:
-        outfname = "L%s_SAP%s_B%s_P%s.fits" % (obsid, sapid, beamid, partid)
-    else:
-        outfname = args.output
+    match = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", filename)
+    obsid, sapid, beamid, _, partid = match.groups()
+    inputdir = os.path.dirname(filename)
 
     # Format HDF5 filenames
     fnames = [
@@ -145,10 +95,10 @@ def main(args):
     beamgroups = [find_beam_group(fptr) for fptr in fp]
 
     # Get parameters
-    if args.nof_samples == 0:
+    if nof_samples == 0:
         nsamp = fp[0][groups[0]].attrs["NOF_SAMPLES"]
     else:
-        nsamp = args.nof_samples
+        nsamp = nof_samples
 
     # Extract data parameters
     nsub = fp[0][groups[0]].attrs["NOF_SUBBANDS"]
@@ -159,19 +109,15 @@ def main(args):
     dtype = fp[0][groups[0]].attrs["DATATYPE"]
 
     # Set time selection
-    if args.start > 0:
-        istart = int(args.start / tsamp)
+    if start > 0:
+        istart = int(start / tsamp)
     else:
         istart = 0
-    if args.total is not None:
-        iend = int((args.start + args.total) / tsamp)
+    if total is not None:
+        iend = int((start + total) / tsamp)
     else:
         iend = nsamp
     nsamp = iend - istart
-
-    # Set channelization and decimation
-    nchan = args.nchan
-    nbin = args.nsamp
 
     # Bytes per spectrum: 4 values per sample at 4 bytes per value
     bytes_per_spectrum = nsub * nchan * 4 * 4
@@ -198,16 +144,16 @@ def main(args):
     freqs = freqmin + np.arange(mchan) * freqstep
 
     # Set frequency selection
-    if args.frequency is not None and args.bandwidth is not None:
-        fmin = args.frequency - 0.5 * args.bandwidth
-        fmax = args.frequency + 0.5 * args.bandwidth
+    if frequency is not None and bandwidth is not None:
+        fmin = frequency - 0.5 * bandwidth
+        fmax = frequency + 0.5 * bandwidth
         cfreq = (freqs >= fmin) & (freqs < fmax)
     else:
         cfreq = np.ones(len(freqs), dtype="bool")
     mchan = np.sum(cfreq)
     freqmin = np.min(freqs[cfreq])
 
-    if args.verbose:
+    if verbose:
         print(
             "\n----------------------------- INPUT DATA ----------------------"
         )
@@ -222,7 +168,7 @@ def main(args):
 
     # Allocate output arrays
     s0 = np.zeros(msamp * mchan).astype("float32").reshape(msamp, mchan)
-    if not args.stokesi:
+    if not stokesi:
         s1 = np.zeros(msamp * mchan).astype("float32").reshape(msamp, mchan)
         s2 = np.zeros(msamp * mchan).astype("float32").reshape(msamp, mchan)
         s3 = np.zeros(msamp * mchan).astype("float32").reshape(msamp, mchan)
@@ -235,7 +181,7 @@ def main(args):
     hdr["CRPIX1"] = 0.0
     hdr["CRPIX2"] = 0.0
     hdr["CRPIX3"] = 0.0
-    hdr["CRVAL1"] = args.start
+    hdr["CRVAL1"] = start
     hdr["CRVAL2"] = freqmin
     hdr["CRVAL3"] = 0.0
     hdr["CDELT1"] = nchan * nbin * tsamp
@@ -247,7 +193,7 @@ def main(args):
     hdr["CTYPE2"] = "FREQ"
     hdr["CTYPE3"] = "STOKES"
 
-    if args.verbose:
+    if verbose:
         print(
             "\n----------------------------- OUTPUT DATA ---------------------"
         )
@@ -258,7 +204,7 @@ def main(args):
         print("Time decimation factor       : %d" % nbin)
         print("Number of chunks             : %d" % nchunk)
         print("Chunk size                   : %.2f MB" % (chunk_size * 1e-6))
-        if not args.stokesi:
+        if not stokesi:
             print("Output size                  : %.2f MB" %
                   (4 * msamp * mchan * 1e-6))
         else:
@@ -316,7 +262,7 @@ def main(args):
             ((xx + yy).reshape(nint_act, -1,
                                order="F")).reshape(mint_act, nbin, -1),
             axis=1)[:, cfreq]
-        if not args.stokesi:
+        if not stokesi:
             s1[jmin:jmax] = np.mean(
                 ((xx - yy).reshape(nint_act, -1,
                                    order="F")).reshape(mint_act, nbin, -1),
@@ -335,7 +281,81 @@ def main(args):
 
     os.chdir(currentdir)
 
-    if args.stokesi:
+    if stokesi:
         return [s0.T], hdr
     else:
         return [s0.T, s1.T, s2.T, s3.T], hdr
+
+
+def main():
+    """Read command line arguments"""
+    parser = argparse.ArgumentParser(
+        description="Channelize LOFAR complex voltage data")
+    parser.add_argument("-t",
+                        "--nsamp",
+                        help="Decimate in time (power of 2; default: 128)",
+                        type=int,
+                        default=128)
+    parser.add_argument(
+        "-F",
+        "--nchan",
+        help="Number of channels per subband (power of 2; default 16)",
+        type=int,
+        default=16)
+    parser.add_argument("-o", "--output", help="Output FITS file name")
+    parser.add_argument("-I",
+                        "--stokesi",
+                        help="Stokes I only",
+                        action="store_true")
+    parser.add_argument("-v",
+                        "--verbose",
+                        help="Verbose mode",
+                        action="store_true")
+    parser.add_argument("-n",
+                        "--nof_samples",
+                        help="Additional NOF_SAMPLES",
+                        type=int,
+                        default=0)
+    parser.add_argument("-S",
+                        "--start",
+                        help="Start processing t=start (seconds; default 0)",
+                        type=float,
+                        default=0.0)
+    parser.add_argument(
+        "-T",
+        "--total",
+        help="Process only t=total seconds (seconds; default all)",
+        type=float,
+        default=None)
+    parser.add_argument("-f",
+                        "--frequency",
+                        help="Center frequency to extract (Hz; default none)",
+                        type=float,
+                        default=None)
+    parser.add_argument("-b",
+                        "--bandwidth",
+                        help="Bandwidth to extract (Hz; default all)",
+                        type=float,
+                        default=None)
+    parser.add_argument(
+        "filename",
+        help="HDF5 input header file name (LXXXXXX_SAPXXX_BXXX_SX_PXXX_bf.h5)")
+    args = parser.parse_args()
+
+    data, hdr = channelize(args.filename, args.nchan, args.nsamp, nof_samples=args.nof_samples)
+
+    # Set output filename
+    if args.output is None:
+        m = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
+        obsid, sapid, beamid, _, partid = m.groups()
+        outfname = "L%s_SAP%s_B%s_P%s.fits" % (obsid, sapid, beamid, partid)
+    else:
+        outfname = args.output
+
+    # Write out FITS
+    hdu = fits.PrimaryHDU(data=data, header=hdr)
+    hdu.writeto(outfname, overwrite=True)
+
+
+if __name__ == "__main__":
+    main()
