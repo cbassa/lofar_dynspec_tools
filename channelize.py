@@ -342,7 +342,10 @@ def main():
         help="HDF5 input header file name (LXXXXXX_SAPXXX_BXXX_SX_PXXX_bf.h5)")
     args = parser.parse_args()
 
-    data, hdr = channelize(args.filename, args.nchan, args.nsamp, nof_samples=args.nof_samples)
+    data, hdr = channelize(args.filename, nchan=args.nchan, nbin=args.nsamp,
+                           nof_samples=args.nof_samples, start=args.start,
+                           total=args.total, verbose=args.verbose, frequency=args.frequency,
+                           bandwidth=args.bandwidth, stokesi=args.stokesi)
 
     # Set output filename
     if args.output is None:
