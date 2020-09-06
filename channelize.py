@@ -10,9 +10,11 @@ import numpy as np
 import h5py
 from scipy.fftpack import fft, fftshift, fftfreq
 from astropy.io import fits
+from astropy.time import Time
+import astropy.units as u
 
 try:
-    from tqdm import tqdm
+    from tqdm.auto import tqdm
 except ImportError:
 
     def tqdm(x):
@@ -109,6 +111,10 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
     dtype = fp[0][groups[0]].attrs["DATATYPE"]
 
     # Set time selection
+    if isinstance(start, Time):
+        obs_start = Time(fp[0]["/"].attrs["OBSERVATION_START_MJD"], format='mjd')
+        start = (start - obs_start).to(u.s).value
+
     if start > 0:
         istart = int(start / tsamp)
     else:
@@ -282,9 +288,9 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
     os.chdir(currentdir)
 
     if stokesi:
-        return [s0.T], hdr
+        return np.array([s0.T]), hdr
     else:
-        return [s0.T, s1.T, s2.T, s3.T], hdr
+        return np.array([s0.T, s1.T, s2.T, s3.T]), hdr
 
 
 def main():
