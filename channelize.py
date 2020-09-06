@@ -349,8 +349,8 @@ def main():
 
     # Set output filename
     if args.output is None:
-        m = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
-        obsid, sapid, beamid, _, partid = m.groups()
+        match = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
+        obsid, sapid, beamid, _, partid = match.groups()
         outfname = "L%s_SAP%s_B%s_P%s.fits" % (obsid, sapid, beamid, partid)
     else:
         outfname = args.output
