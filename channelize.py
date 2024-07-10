@@ -241,6 +241,16 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
             yi = fp[3][groups[3]][imin:imax]
         tread = time.time() - t0
 
+        # Zero padd if too small
+        nsamp_read = xr.shape[0]
+        if nsamp_read < imax - imin:
+            nsamp_missing = imax - imin - nsamp_read
+            padding = np.zeros((nsamp_missing, nsub), dtype=xr.dtype)
+            xr = np.concatenate((xr, padding), axis=0)
+            xi = np.concatenate((xi, padding), axis=0)
+            yr = np.concatenate((yr, padding), axis=0)
+            yi = np.concatenate((yi, padding), axis=0)         
+        
         # Use actual size to deal with last chunk
         nint_act = xr.shape[0] // nchan
         mint_act = nint_act // nbin
