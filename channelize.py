@@ -76,8 +76,8 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
     # Parse HDF5 file name
     match = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", filename)
     obsid, sapid, beamid, _, partid = match.groups()
-    inputdir = os.path.dirname(filename)
-
+    inputdir = os.path.abspath(os.path.dirname(filename))
+    
     # Format HDF5 filenames
     fnames = [
         os.path.join(
