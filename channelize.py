@@ -181,9 +181,9 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
 
     # Set header
     hdr = fits.Header()
-    hdr["DATE-OBS"] = fp[0]["/"].attrs["OBSERVATION_START_UTC"].decode()
+    hdr["DATE-OBS"] = fp[0]["/"].attrs["OBSERVATION_START_UTC"]
     hdr["MJD-OBS"] = fp[0]["/"].attrs["OBSERVATION_START_MJD"]
-    hdr["SOURCE"] = fp[0]["/"].attrs["TARGETS"][0].decode()
+    hdr["SOURCE"] = fp[0]["/"].attrs["TARGETS"][0]
     hdr["CRPIX1"] = 0.0
     hdr["CRPIX2"] = 0.0
     hdr["CRPIX3"] = 0.0
