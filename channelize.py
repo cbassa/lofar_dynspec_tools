@@ -142,6 +142,7 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
     msamp = nchunk * nint // nbin
     mchan = nsub * nchan
     mint = nint // nbin
+    msamp_store = nsamp // (nchan * nbin)
 
     # Subband frequencies
     freqsub = fftshift(fftfreq(nchan, d=tsamp))
@@ -204,7 +205,7 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
             "\n----------------------------- OUTPUT DATA ---------------------"
         )
         print("Sample time                  : %g s" % (nchan * nbin * tsamp))
-        print("Number of samples            : %d" % msamp)
+        print("Number of samples            : %d" % msamp_store)
         print("Number of channels           : %d" % mchan)
         print("Channels per subband         : %d" % nchan)
         print("Time decimation factor       : %d" % nbin)
@@ -298,9 +299,9 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
     os.chdir(currentdir)
 
     if stokesi:
-        return np.array([s0.T]), hdr
+        return np.array([s0[:msamp_store].T]), hdr
     else:
-        return np.array([s0.T, s1.T, s2.T, s3.T]), hdr
+        return np.array([s0[:msamp_store].T, s1[:msamp_store].T, s2[:msamp_store].T, s3[:msamp_store].T]), hdr
 
 
 def main():
