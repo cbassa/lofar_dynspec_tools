@@ -116,14 +116,14 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
         start = (start - obs_start).to(u.s).value
 
     if start > 0:
-        istart = int(start / tsamp)
+        isampmin = int(start / tsamp)
     else:
-        istart = 0
+        isampmin = 0
     if total is not None:
-        iend = int((start + total) / tsamp)
+        isampmax = int((start + total) / tsamp)
     else:
-        iend = nsamp
-    nsamp = iend - istart
+        isampmax = nsamp
+    nsamp = isampmax - isampmin
 
     # Bytes per spectrum: 4 values per sample at 4 bytes per value
     bytes_per_spectrum = nsub * nchan * 4 * 4
@@ -132,12 +132,16 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
     if np.dtype(dtype) == np.int8:
         recsize = fp[0][groups[0] + "_i2f"].attrs["STOKES_0_recsize"]
         nint = recsize // (nsub * nchan)
-        nchunk = nsamp // (nint * nchan) + 1
         chunk_size = nint * bytes_per_spectrum
     else:
         nint, chunk_size = estimate_chunk_size(bytes_per_spectrum, 500e6)
-        nchunk = nsamp // (nint * nchan) + 1
-
+    nsamp_per_chunk = nint * nchan
+    
+    # Data chuncks to read
+    ichunkmin = int(np.floor(isampmin / nsamp_per_chunk))
+    ichunkmax = int(np.ceil(isampmax / nsamp_per_chunk))
+    nchunk = ichunkmax - ichunkmin
+        
     # Output file sizes
     msamp = nchunk * nint // nbin
     mchan = nsub * nchan
@@ -213,17 +217,19 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
         print("Chunk size                   : %.2f MB" % (chunk_size * 1e-6))
         if not stokesi:
             print("Output size                  : %.2f MB" %
-                  (4 * msamp * mchan * 1e-6))
+                  (4 * 4 * msamp_store * mchan * 1e-6))
         else:
             print("Output size                  : %.2f MB" %
-                  (msamp * mchan * 1e-6))
+                  (4 * msamp_store * mchan * 1e-6))
 
     # Loop over chunks
-    for ichunk in tqdm(range(nchunk)):
+    jmin = 0
+    for ichunk in tqdm(range(ichunkmin, ichunkmax)):
         # Set slice to read
-        imin = ichunk * nchan * nint + istart
-        imax = (ichunk + 1) * nchan * nint + istart
-
+        imin = int(np.floor(max(ichunk * nsamp_per_chunk, isampmin) / (nbin * nchan)) * nbin * nchan)
+        imax = int(np.ceil(min((ichunk + 1) * nsamp_per_chunk, isampmax) / (nbin * nchan)) * nbin * nchan)
+        nsamp_to_read = imax - imin
+        
         # Extract values from HDF5 files
         t0 = time.time()
         if np.dtype(dtype) == np.int8:
@@ -270,8 +276,7 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
         yy = np.real(py) * np.real(py) + np.imag(py) * np.imag(py)
 
         # Set slice to output
-        jmin = ichunk * mint_act
-        jmax = (ichunk + 1) * mint_act
+        jmax = jmin + mint_act
 
         # Form Stokes
         # (IAU/IEEE convention [van Straten et al. 2010, PASP 27, 104])
@@ -295,7 +300,7 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
                             order="F")).reshape(mint_act, nbin, -1),
                 axis=1)[:, cfreq]
         tproc = time.time() - t0
-
+        jmin = jmax
     os.chdir(currentdir)
 
     if stokesi:
