@@ -146,9 +146,11 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
 
     # Subband frequencies
     freqsub = fftshift(fftfreq(nchan, d=tsamp))
-    freqmin = np.min(freqsub) + freq[0]
+
+    # Channel frequencies
+    freqs = np.ravel(freq[:, np.newaxis] + freqsub[np.newaxis, :])
+    freqmin = np.min(freqs)
     freqstep = freqsub[1] - freqsub[0]
-    freqs = freqmin + np.arange(mchan) * freqstep
 
     # Set frequency selection
     if frequency is not None and bandwidth is not None:
@@ -157,6 +159,7 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
         cfreq = (freqs >= fmin) & (freqs < fmax)
     else:
         cfreq = np.ones(len(freqs), dtype="bool")
+
     mchan = np.sum(cfreq)
     freqmin = np.min(freqs[cfreq])
 
