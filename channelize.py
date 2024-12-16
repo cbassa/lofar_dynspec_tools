@@ -55,7 +55,7 @@ def find_beam_group(h5):
 
 
 def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None, verbose=False,
-               frequency=None, bandwidth=None, stokesi=False):
+               frequency=None, bandwidth=None, stokesi=False, coherency=False):
     """
     Extract data from HDF5 and channelize
 
@@ -205,7 +205,10 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
     hdr["CUNIT2"] = "Hz"
     hdr["CTYPE1"] = "TIME"
     hdr["CTYPE2"] = "FREQ"
-    hdr["CTYPE3"] = "STOKES"
+    if not coherency:
+        hdr["CTYPE3"] = "STOKES"
+    else:
+        hdr["CTYPE3"] = "COHERENCY"
 
     if verbose:
         print(
@@ -274,33 +277,52 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
         px = fftshift(fft(cx.reshape(nint_act, nchan, -1), axis=1), axes=1)
         py = fftshift(fft(cy.reshape(nint_act, nchan, -1), axis=1), axes=1)
 
-        # Detect signals
+        # Detect signals (coherence)
         xx = np.real(px) * np.real(px) + np.imag(px) * np.imag(px)
         yy = np.real(py) * np.real(py) + np.imag(py) * np.imag(py)
-
+        Rxy = np.real(px) * np.real(py) + np.imag(px) * np.imag(py)
+        Ixy = np.imag(px) * np.real(py) - np.real(px) * np.imag(py)
+        
         # Set slice to output
         jmax = jmin + mint_act
 
-        # Form Stokes
-        # (IAU/IEEE convention [van Straten et al. 2010, PASP 27, 104])
-        s0[jmin:jmax] = np.mean(
-            ((xx + yy).reshape(nint_act, -1,
+        # Detect signals
+        if not coherency:
+            # Form Stokes
+            # (IAU/IEEE convention [van Straten et al. 2010, PASP 27, 104])
+            s0[jmin:jmax] = np.mean(
+                ((xx + yy).reshape(nint_act, -1,
                                order="F")).reshape(mint_act, nbin, -1),
-            axis=1)[:, cfreq]
-        if not stokesi:
+                axis=1)[:, cfreq]
+            if not stokesi:
+                s1[jmin:jmax] = np.mean(
+                    ((xx - yy).reshape(nint_act, -1,
+                                       order="F")).reshape(mint_act, nbin, -1),
+                    axis=1)[:, cfreq]
+                s2[jmin:jmax] = np.mean(
+                    ((2.0 * Rxy).reshape(nint_act, -1,
+                                         order="F")).reshape(mint_act, nbin, -1),
+                    axis=1)[:, cfreq]
+                s3[jmin:jmax] = np.mean(
+                    ((2.0 * Ixy).reshape(nint_act, -1,
+                                         order="F")).reshape(mint_act, nbin, -1),
+                    axis=1)[:, cfreq]
+        else:
+            s0[jmin:jmax] = np.mean(
+                (xx.reshape(nint_act, -1,
+                            order="F")).reshape(mint_act, nbin, -1),
+                axis=1)[:, cfreq]
             s1[jmin:jmax] = np.mean(
-                ((xx - yy).reshape(nint_act, -1,
-                                   order="F")).reshape(mint_act, nbin, -1),
+                (yy.reshape(nint_act, -1,
+                            order="F")).reshape(mint_act, nbin, -1),
                 axis=1)[:, cfreq]
             s2[jmin:jmax] = np.mean(
-                ((2.0 * (np.real(px) * np.real(py) + np.imag(px) * np.imag(py))
-                  ).reshape(nint_act, -1,
-                            order="F")).reshape(mint_act, nbin, -1),
+                (Rxy.reshape(nint_act, -1,
+                             order="F")).reshape(mint_act, nbin, -1),
                 axis=1)[:, cfreq]
             s3[jmin:jmax] = np.mean(
-                ((2.0 * (np.imag(px) * np.real(py) - np.real(px) * np.imag(py))
-                  ).reshape(nint_act, -1,
-                            order="F")).reshape(mint_act, nbin, -1),
+                (Ixy.reshape(nint_act, -1,
+                             order="F")).reshape(mint_act, nbin, -1),
                 axis=1)[:, cfreq]
         tproc = time.time() - t0
         jmin = jmax
@@ -331,6 +353,10 @@ def main():
     parser.add_argument("-I",
                         "--stokesi",
                         help="Stokes I only",
+                        action="store_true")
+    parser.add_argument("-C",
+                        "--coherency",
+                        help="Compute coherency state [instead of Stokes]",
                         action="store_true")
     parser.add_argument("-v",
                         "--verbose",
@@ -370,7 +396,7 @@ def main():
     data, hdr = channelize(args.filename, nchan=args.nchan, nbin=args.nsamp,
                            nof_samples=args.nof_samples, start=args.start,
                            total=args.total, verbose=args.verbose, frequency=args.frequency,
-                           bandwidth=args.bandwidth, stokesi=args.stokesi)
+                           bandwidth=args.bandwidth, stokesi=args.stokesi, coherency=args.coherency)
 
     # Set output filename
     if args.output is None:
