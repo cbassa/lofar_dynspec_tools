@@ -74,10 +74,15 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
         data (np.array), header (as fits object)
     """
     # Parse HDF5 file name
-    match = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", filename)
-    obsid, sapid, beamid, _, partid = match.groups()
+    if "_N" in filename:
+        match = re.search(r"L(\d+)_N(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", filename)
+        obsid, pipid, sapid, beamid, _, partid = match.groups()
+        obsid = f"{obsid}_N{pipid}"
+    else:
+        match = re.search(r"L(\d+)_*_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", filename)
+        obsid, sapid, beamid, _, partid = match.groups()
     inputdir = os.path.abspath(os.path.dirname(filename))
-    
+
     # Format HDF5 filenames
     fnames = [
         os.path.join(
@@ -400,9 +405,14 @@ def main():
 
     # Set output filename
     if args.output is None:
-        match = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
-        obsid, sapid, beamid, _, partid = match.groups()
-        outfname = "L%s_SAP%s_B%s_P%s.fits" % (obsid, sapid, beamid, partid)
+        if "_N" in args.filename:
+            match = re.search(r"L(\d+)_N(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
+            obsid, pipid, sapid, beamid, _, partid = match.groups()
+            outfname = "L%s_N%s_SAP%s_B%s_P%s.fits" % (obsid, pipid, sapid, beamid, partid)
+        else:
+            match = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
+            obsid, sapid, beamid, _, partid = match.groups()
+            outfname = "L%s_SAP%s_B%s_P%s.fits" % (obsid, sapid, beamid, partid)
     else:
         outfname = args.output
 
