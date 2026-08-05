@@ -12,6 +12,7 @@ from scipy.fftpack import fft, fftshift, fftfreq
 from astropy.io import fits
 from astropy.time import Time
 import astropy.units as u
+from scipy.signal import windows
 
 try:
     from tqdm.auto import tqdm
@@ -78,6 +79,10 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
         match = re.search(r"L(\d+)_N(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", filename)
         obsid, pipid, sapid, beamid, _, partid = match.groups()
         obsid = f"{obsid}_N{pipid}"
+    elif "_CP" in filename:
+        match = re.search(r"L(\d+)_CP(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", filename)
+        obsid, pipid, sapid, beamid, _, partid = match.groups()
+        obsid = f"{obsid}_CP{pipid}"
     else:
         match = re.search(r"L(\d+)_*_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", filename)
         obsid, sapid, beamid, _, partid = match.groups()
@@ -277,10 +282,14 @@ def channelize(filename, nchan=16, nbin=128, nof_samples=0, start=0, total=None,
         cx = xr + 1j * xi
         cy = yr + 1j * yi
 
+        # Window
+        w = windows.blackmanharris(nchan)[np.newaxis, :, np.newaxis]
+        w = np.ones(nchan)[np.newaxis, :, np.newaxis]
+        
         # Fourier transform
         t0 = time.time()
-        px = fftshift(fft(cx.reshape(nint_act, nchan, -1), axis=1), axes=1)
-        py = fftshift(fft(cy.reshape(nint_act, nchan, -1), axis=1), axes=1)
+        px = fftshift(fft(cx.reshape(nint_act, nchan, -1) * w, axis=1), axes=1)
+        py = fftshift(fft(cy.reshape(nint_act, nchan, -1) * w, axis=1), axes=1)
 
         # Detect signals (coherence)
         xx = np.real(px) * np.real(px) + np.imag(px) * np.imag(px)
@@ -409,6 +418,10 @@ def main():
             match = re.search(r"L(\d+)_N(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
             obsid, pipid, sapid, beamid, _, partid = match.groups()
             outfname = "L%s_N%s_SAP%s_B%s_P%s.fits" % (obsid, pipid, sapid, beamid, partid)
+        elif "_CP" in args.filename:
+            match = re.search(r"L(\d+)_CP(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
+            obsid, pipid, sapid, beamid, _, partid = match.groups()
+            outfname = "L%s_CP%s_SAP%s_B%s_P%s.fits" % (obsid, pipid, sapid, beamid, partid)
         else:
             match = re.search(r"L(\d+)_SAP(\d+)_B(\d+)_S(\d)_P(\d+)_bf.h5", args.filename)
             obsid, sapid, beamid, _, partid = match.groups()
